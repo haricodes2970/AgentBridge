@@ -11,7 +11,7 @@ When an agent hits a credit or context limit, the next agent starts with zero me
 Pinned release (recommended):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/haricodes2970/AgentBridge/v0.2.0/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/haricodes2970/AgentBridge/v0.2.1/install.sh | bash
 ```
 
 Or install from main (latest, unpinned):
