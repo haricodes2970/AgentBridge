@@ -51,6 +51,14 @@ if echo "$status_out" | grep -qF 'bridge exists: yes'; then ok "status.sh report
 echo "== init-bridge is idempotent =="
 if bash "$REPO_ROOT/scripts/init-bridge.sh" "$TMP" >/dev/null 2>&1; then ok "second init-bridge run succeeded"; else fail "second init-bridge run failed"; fi
 
+echo "== validate-bridge.sh =="
+if bash "$REPO_ROOT/scripts/validate-bridge.sh" "$TMP"; then ok "validate-bridge.sh exits 0"; else fail "validate-bridge.sh exited non-zero"; fi
+
+echo "== uninstall.sh (twice, idempotent) =="
+if bash "$REPO_ROOT/scripts/uninstall.sh" "$TMP"; then ok "uninstall.sh exits 0 (first run)"; else fail "uninstall.sh exited non-zero (first run)"; fi
+if [[ -d "$TMP/.AgentBridge" ]]; then fail ".AgentBridge/ still exists after uninstall"; else ok ".AgentBridge/ removed after uninstall"; fi
+if bash "$REPO_ROOT/scripts/uninstall.sh" "$TMP"; then ok "uninstall.sh exits 0 (second run)"; else fail "uninstall.sh exited non-zero (second run)"; fi
+
 if [[ "$FAIL" -ne 0 ]]; then echo "SMOKE TEST FAILED" >&2; exit 1; fi
 echo "SMOKE TEST PASSED"
 exit 0

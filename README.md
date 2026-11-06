@@ -63,3 +63,15 @@ bash scripts/status.sh "$PWD"
 ```
 
 It reports whether `.AgentBridge/` exists, the last checkpoint timestamp (newest mtime under `sessions/` or `git-state.md`), the count of session files, the current git branch/HEAD, and whether `.AgentBridge/` is in `.gitignore`. If the bridge is older than 24 hours, it prints a `STALE: last checkpoint >24h ago` warning. It always exits 0.
+
+## Uninstall
+
+Remove AgentBridge from a project:
+
+```bash
+bash <skill-dir>/scripts/uninstall.sh "$PWD"
+```
+
+This removes `.AgentBridge/`, the `.AgentBridge/` line from `.gitignore`, the Cline `session-shutdown.sh` hook, the AgentBridge block from `AGENTS.md`, and the Claude Code `SessionEnd` hook from `.claude/settings.json`. It does **not** delete the skill directory itself — remove `~/.cline/skills/AgentBridge` (or the equivalent) manually if desired.
+
+The script is idempotent: running it twice does not error.
