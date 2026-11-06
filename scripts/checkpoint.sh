@@ -16,8 +16,11 @@ cd "$PROJECT_DIR"
 
 BRANCH="$(git branch --show-current 2>/dev/null || echo 'unknown')"
 HEAD="$(git rev-parse --short HEAD 2>/dev/null || echo 'none')"
-DIRTY_LIST="$(git status --porcelain 2>/dev/null || true)"
-DIRTY_COUNT="$(echo -n "$DIRTY_LIST" | grep -c . || true)"
+EXCLUDE_REGEX='(\.cline/hooks/(session-shutdown|post-tool-use)\.sh|\.claude/settings\.json)$'
+DIRTY_LIST="$(git status --porcelain --untracked-files=all 2>/dev/null || true)"
+DIRTY_USER="$(echo "$DIRTY_LIST" | grep -vE "$EXCLUDE_REGEX" || true)"
+DIRTY_AGENTBRIDGE="$(echo "$DIRTY_LIST" | grep -E "$EXCLUDE_REGEX" || true)"
+DIRTY_COUNT="$(echo -n "$DIRTY_USER" | grep -c . || true)"
 UNPUSHED="$(git log --oneline @{u}..HEAD 2>/dev/null | wc -l | tr -d ' ' || echo 'n/a')"
 
 cat > "$BRIDGE/git-state.md" <<EOF
@@ -26,12 +29,17 @@ cat > "$BRIDGE/git-state.md" <<EOF
 - Updated: $STAMP
 - Branch: \`$BRANCH\`
 - HEAD: \`$HEAD\`
-- Dirty files: $DIRTY_COUNT
+- Dirty files (user): $DIRTY_COUNT
 - Unpushed commits: $UNPUSHED
 
-## Dirty file list
+## User changes
 \`\`\`
-${DIRTY_LIST:-clean}
+${DIRTY_USER:-clean}
+\`\`\`
+
+## AgentBridge-managed artifacts (expected)
+\`\`\`
+${DIRTY_AGENTBRIDGE:-none}
 \`\`\`
 EOF
 

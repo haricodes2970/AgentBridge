@@ -38,6 +38,17 @@ AGENT_NAME=smoke-agent bash "$REPO_ROOT/scripts/checkpoint.sh" "$TMP"
 rows2="$(grep -cE '^\| [0-9]{4}-[0-9]{2}-[0-9]{2} \|' "$TMP/.AgentBridge/sessions/INDEX.md" 2>/dev/null || echo 0)"
 if [[ "$rows2" -eq 1 ]]; then ok "INDEX.md still has exactly one data row after re-checkpoint"; else fail "INDEX.md has $rows2 data rows after re-checkpoint, expected 1"; fi
 
+echo "== git-state.md separates user vs AgentBridge dirt =="
+if grep -qF '## User changes' "$TMP/.AgentBridge/git-state.md"; then ok "git-state.md has User changes section"; else fail "git-state.md missing User changes section"; fi
+if grep -qF '## AgentBridge-managed artifacts (expected)' "$TMP/.AgentBridge/git-state.md"; then ok "git-state.md has AgentBridge-managed artifacts section"; else fail "git-state.md missing AgentBridge-managed artifacts section"; fi
+
+echo "== checkpoint does not count AgentBridge hooks as user dirt =="
+mkdir -p "$TMP/.cline/hooks"
+printf '#!/usr/bin/env bash\necho hook\n' > "$TMP/.cline/hooks/post-tool-use.sh"
+AGENT_NAME=smoke-agent bash "$REPO_ROOT/scripts/checkpoint.sh" "$TMP"
+if grep -qF '.cline/hooks/post-tool-use.sh' "$TMP/.AgentBridge/git-state.md"; then ok "post-tool-use.sh appears under AgentBridge-managed artifacts"; else fail "post-tool-use.sh missing from AgentBridge-managed artifacts"; fi
+if ! grep -qF ' M .cline/hooks/post-tool-use.sh' "$TMP/.AgentBridge/git-state.md"; then ok "post-tool-use.sh does not inflate user Dirty files count"; else fail "post-tool-use.sh incorrectly counted as user dirt"; fi
+
 echo "== read-bridge.sh and status.sh =="
 read_out="$(bash "$REPO_ROOT/scripts/read-bridge.sh" "$TMP")"
 if [[ $? -eq 0 ]]; then ok "read-bridge.sh exits 0"; else fail "read-bridge.sh exited non-zero"; fi
