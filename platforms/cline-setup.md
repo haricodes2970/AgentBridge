@@ -4,9 +4,13 @@
 2. Restart Cline.
 3. Say: "Activate AgentBridge".
 
-## Optional: automatic checkpoints
+`install.sh` automatically creates `.cline/hooks/session-shutdown.sh`
+in the target project and makes it executable, so `.AgentBridge/`
+checkpoints after each Cline session.
 
-Create `.cline/hooks/SessionShutdown.sh`:
+## Optional: manual fallback / PostToolUse hook
+
+If you prefer to wire it yourself, create `.cline/hooks/SessionShutdown.sh`:
 
 ```bash
 #!/usr/bin/env bash

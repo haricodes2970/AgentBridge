@@ -54,4 +54,16 @@ if ! grep -qxF '.AgentBridge/' .gitignore 2>/dev/null; then
   echo "Added .AgentBridge/ to .gitignore"
 fi
 
+# Wire Cline hooks automatically
+if [[ "$PLATFORM" == "cline" ]]; then
+  HOOKS_DIR="$PROJECT_DIR/.cline/hooks"
+  mkdir -p "$HOOKS_DIR"
+  cat > "$HOOKS_DIR/session-shutdown.sh" <<'EOF'
+#!/usr/bin/env bash
+AGENT_NAME=cline bash "$HOME/.cline/skills/AgentBridge/scripts/checkpoint.sh" "$PWD" || true
+EOF
+  chmod +x "$HOOKS_DIR/session-shutdown.sh"
+  echo "Installed Cline SessionShutdown hook at $HOOKS_DIR/session-shutdown.sh"
+fi
+
 echo "Done. Restart your agent and say: 'Activate AgentBridge'."
