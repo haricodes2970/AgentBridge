@@ -29,6 +29,7 @@ Preferred: run `bash <skill-dir>/scripts/read-bridge.sh "$PWD"` and read its out
 3. `.AgentBridge/state.md` — current focus, files touched, tests run, blockers.
 4. `.AgentBridge/git-state.md` — branch, HEAD, unpushed commits, dirty files.
 5. `.AgentBridge/decisions.md` — read the last 5 entries only.
+6. If `.AgentBridge/code-map.md` exists and is non-empty, read it before grepping the repo.
 
 If `sessions/INDEX.md` exists, read it to find the most recent session summary. Open that file only if you need more history.
 

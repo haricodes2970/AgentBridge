@@ -20,6 +20,11 @@ cp "$TEMPLATES/git-state.md" "$BRIDGE/git-state.md"
 cp "$TEMPLATES/environment.md" "$BRIDGE/environment.md"
 cp "$TEMPLATES/INDEX.md" "$BRIDGE/sessions/INDEX.md"
 
+# Optionally seed code-map.md if the template exists (Graphify-inspired pointer file)
+if [[ -f "$TEMPLATES/code-map.md" ]]; then
+  cp "$TEMPLATES/code-map.md" "$BRIDGE/code-map.md"
+fi
+
 # seed git-state
 cd "$PROJECT_DIR"
 BRANCH="$(git branch --show-current 2>/dev/null || echo 'unknown')"

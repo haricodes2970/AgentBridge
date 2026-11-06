@@ -48,6 +48,10 @@ Run `AGENT_NAME=<agent> bash <skill-dir>/scripts/checkpoint.sh "$PWD"` manually 
 
 Graphify builds a structural code graph and uses a query-first pattern (consult the graph before grepping). AgentBridge is a lightweight task-state handoff protocol: four small Markdown files, no graph build, no MCP server, no daemon, zero runtime dependencies. It is designed for lossless agent/session switching, not code navigation.
 
+### Optional: code-map.md
+
+AgentBridge supports an optional `code-map.md` — a hand-maintained pointer file (entry points, key modules, where things live) inspired by Graphify's query-first pattern, but with no runtime. It is not auto-generated and not a graph; it simply gives the next agent a place to note "where things live" so it greps less. Seed it from `templates/code-map.md` if present.
+
 ## Design notes
 
 - `.AgentBridge/` is gitignored by design—it is local-only session memory, not project source.
