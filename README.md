@@ -22,11 +22,12 @@ curl -fsSL https://raw.githubusercontent.com/haricodes2970/AgentBridge/main/inst
 
 Restart your agent, then say: **"Activate AgentBridge"**. This runs `scripts/init-bridge.sh` to create `.AgentBridge/` at the project root and confirms the bridge is active.
 
-On Cline, `install.sh --platform cline` also auto-installs a
-`.cline/hooks/session-shutdown.sh` that checkpoints `.AgentBridge/`
-automatically after each session. OpenCode and Claude Code still rely on
-the SKILL.md instruction to run `scripts/checkpoint.sh` until native
-hooks are added.
+`install.sh` wires an automatic checkpoint for every supported platform:
+- Cline: `.cline/hooks/session-shutdown.sh` runs `checkpoint.sh` after each session.
+- Claude Code: `.claude/settings.json` gets a `SessionEnd` hook that runs `checkpoint.sh`.
+- OpenCode: an AgentBridge block is added to your project's `AGENTS.md` reminding you to run `checkpoint.sh` before ending the session.
+
+Run `AGENT_NAME=<agent> bash <skill-dir>/scripts/checkpoint.sh "$PWD"` manually if auto-install did not apply.
 
 ## File structure
 
