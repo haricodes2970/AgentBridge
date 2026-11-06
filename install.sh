@@ -30,7 +30,14 @@ case "$PLATFORM" in
   *) SKILL_DIR="$HOME/.agentbridge/skills/$SKILL_NAME" ;;
 esac
 
-if [[ -d "$SKILL_DIR/.git" ]]; then
+if [[ "${AGENTBRIDGE_SKIP_CLONE:-}" == "1" ]]; then
+  echo "Skipping git clone; copying local tree into $SKILL_DIR"
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  REPO_ROOT="$SCRIPT_DIR"
+  rm -rf "$SKILL_DIR"
+  mkdir -p "$(dirname "$SKILL_DIR")"
+  cp -r "$REPO_ROOT" "$SKILL_DIR"
+elif [[ -d "$SKILL_DIR/.git" ]]; then
   echo "Updating $SKILL_NAME in $SKILL_DIR"
   git -C "$SKILL_DIR" pull --ff-only
 else
