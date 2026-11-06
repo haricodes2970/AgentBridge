@@ -65,11 +65,18 @@ fi
 
 # append index row if not present
 INDEX="$BRIDGE/sessions/INDEX.md"
-if [[ -f "$INDEX" ]]; then
-  ROW="| $(date -u +"%Y-%m-%d") | $AGENT | $(basename "$SESSION_FILE") | $HEAD |"
-  if ! grep -qF "$ROW" "$INDEX" 2>/dev/null; then
-    echo "$ROW" >> "$INDEX"
-  fi
+if [[ ! -f "$INDEX" ]]; then
+  SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  cp "$SKILL_DIR/templates/INDEX.md" "$INDEX"
+fi
+# Ensure the index ends with a newline before appending (defensive against
+# templates or pre-existing files that lack a trailing newline).
+if [[ -s "$INDEX" ]] && [[ ! "$(tail -c1 "$INDEX")" == $'\n' ]]; then
+  echo >> "$INDEX"
+fi
+ROW="| $(date -u +"%Y-%m-%d") | $AGENT | $(basename "$SESSION_FILE") | $HEAD |"
+if ! grep -qF "$ROW" "$INDEX" 2>/dev/null; then
+  echo "$ROW" >> "$INDEX"
 fi
 
 echo "Checkpoint written: $SESSION_FILE"

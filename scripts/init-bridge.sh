@@ -18,7 +18,7 @@ cp "$TEMPLATES/decisions.md" "$BRIDGE/decisions.md"
 cp "$TEMPLATES/next.md" "$BRIDGE/next.md"
 cp "$TEMPLATES/git-state.md" "$BRIDGE/git-state.md"
 cp "$TEMPLATES/environment.md" "$BRIDGE/environment.md"
-cp "$TEMPLATES/session.md" "$BRIDGE/sessions/INDEX.md"
+cp "$TEMPLATES/INDEX.md" "$BRIDGE/sessions/INDEX.md"
 
 # seed git-state
 cd "$PROJECT_DIR"
