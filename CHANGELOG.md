@@ -4,6 +4,19 @@ All notable changes to AgentBridge are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] - 2026-11-06
+
+### Fixed
+- sessions/INDEX.md now seeds from a table template, not a session template (affects anyone installing from a pinned version)
+- git-state.md now separates AgentBridge-managed artifacts from user changes
+
+### Added
+- scripts/read-bridge.sh and scripts/status.sh
+- Automatic checkpoint wiring for OpenCode (AGENTS.md block) and Claude Code (SessionEnd hook)
+- scripts/uninstall.sh and scripts/validate-bridge.sh
+- Optional code-map.md pointer file
+- Dogfood validation report
+
 ## [0.1.0] - 2026-11-06
 
 ### Added
