@@ -22,7 +22,7 @@ If `$SKILL_DIR` is unknown, find the skill directory by checking `.cline/skills/
 
 ## Every session: read order
 
-Before reading any source file, read these in order:
+Preferred: run `bash <skill-dir>/scripts/read-bridge.sh "$PWD"` and read its output. Fallback if the script is unavailable: read the four hot-path files manually in the same order.
 
 1. `.AgentBridge/goal.md` — stable objective, constraints, definition of done.
 2. `.AgentBridge/next.md` — the single next action and open questions.

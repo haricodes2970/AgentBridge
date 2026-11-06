@@ -38,6 +38,16 @@ AGENT_NAME=smoke-agent bash "$REPO_ROOT/scripts/checkpoint.sh" "$TMP"
 rows2="$(grep -cE '^\| [0-9]{4}-[0-9]{2}-[0-9]{2} \|' "$TMP/.AgentBridge/sessions/INDEX.md" 2>/dev/null || echo 0)"
 if [[ "$rows2" -eq 1 ]]; then ok "INDEX.md still has exactly one data row after re-checkpoint"; else fail "INDEX.md has $rows2 data rows after re-checkpoint, expected 1"; fi
 
+echo "== read-bridge.sh and status.sh =="
+read_out="$(bash "$REPO_ROOT/scripts/read-bridge.sh" "$TMP")"
+if [[ $? -eq 0 ]]; then ok "read-bridge.sh exits 0"; else fail "read-bridge.sh exited non-zero"; fi
+if echo "$read_out" | grep -qF '===== goal.md ====='; then ok "read-bridge.sh output has goal.md section"; else fail "read-bridge.sh output missing goal.md section"; fi
+if echo "$read_out" | grep -qF '===== next.md ====='; then ok "read-bridge.sh output has next.md section"; else fail "read-bridge.sh output missing next.md section"; fi
+
+status_out="$(bash "$REPO_ROOT/scripts/status.sh" "$TMP")"
+if [[ $? -eq 0 ]]; then ok "status.sh exits 0"; else fail "status.sh exited non-zero"; fi
+if echo "$status_out" | grep -qF 'bridge exists: yes'; then ok "status.sh reports bridge exists: yes"; else fail "status.sh missing bridge exists: yes"; fi
+
 echo "== init-bridge is idempotent =="
 if bash "$REPO_ROOT/scripts/init-bridge.sh" "$TMP" >/dev/null 2>&1; then ok "second init-bridge run succeeded"; else fail "second init-bridge run failed"; fi
 

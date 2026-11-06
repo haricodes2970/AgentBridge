@@ -52,3 +52,13 @@ Graphify builds a structural code graph and uses a query-first pattern (consult 
 - `.AgentBridge/` is gitignored by design—it is local-only session memory, not project source.
 - Summarize, don't dump. No raw transcripts, no secrets.
 - Write early and often; credit limits are abrupt.
+
+## Checking bridge freshness
+
+Run `scripts/status.sh "$PWD"` for a quick informational status of the bridge:
+
+```bash
+bash scripts/status.sh "$PWD"
+```
+
+It reports whether `.AgentBridge/` exists, the last checkpoint timestamp (newest mtime under `sessions/` or `git-state.md`), the count of session files, the current git branch/HEAD, and whether `.AgentBridge/` is in `.gitignore`. If the bridge is older than 24 hours, it prints a `STALE: last checkpoint >24h ago` warning. It always exits 0.
