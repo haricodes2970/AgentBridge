@@ -1,0 +1,25 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Syntax-check shell scripts
+        run: |
+          bash -n install.sh
+          bash -n scripts/init-bridge.sh
+          bash -n scripts/checkpoint.sh
+
+      - name: Run smoke test
+        run: bash tests/smoke.sh
+
+      - name: Run install dry-run (offline, no GitHub clone)
+        run: AGENTBRIDGE_SKIP_CLONE=1 bash tests/install-dryrun.sh
