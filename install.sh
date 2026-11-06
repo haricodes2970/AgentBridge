@@ -64,6 +64,24 @@ AGENT_NAME=cline bash "$HOME/.cline/skills/AgentBridge/scripts/checkpoint.sh" "$
 EOF
   chmod +x "$HOOKS_DIR/session-shutdown.sh"
   echo "Installed Cline SessionShutdown hook at $HOOKS_DIR/session-shutdown.sh"
+  cat > "$HOOKS_DIR/post-tool-use.sh" <<'EOF'
+#!/usr/bin/env bash
+# AgentBridge: append a one-line activity log entry after each meaningful tool use.
+PROJECT_DIR="$(pwd)"
+BRIDGE="$PROJECT_DIR/.AgentBridge"
+[ -d "$BRIDGE" ] || exit 0
+[ -f "$BRIDGE/state.md" ] || exit 0
+TOOL_NAME="${CLINE_TOOL_NAME:-unknown}"
+case "$TOOL_NAME" in
+  write_to_file|replace_in_file|execute_command|apply_diff) ;;
+  *) exit 0 ;;
+esac
+STAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+printf -- "- %s — %s\n" "$STAMP" "$TOOL_NAME" >> "$BRIDGE/state.md"
+exit 0
+EOF
+  chmod +x "$HOOKS_DIR/post-tool-use.sh"
+  echo "Installed Cline PostToolUse hook at $HOOKS_DIR/post-tool-use.sh"
 fi
 
 # Wire Claude Code hooks automatically

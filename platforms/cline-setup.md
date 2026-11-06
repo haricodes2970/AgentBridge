@@ -1,16 +1,28 @@
 # Cline setup
 
-1. Run `curl -fsSL https://raw.githubusercontent.com/haricodes2970/AgentBridge/main/install.sh | bash -s -- --platform cline --project "$PWD"`.
+1. Run `curl -fsSL https://raw.githubusercontent.com/haricodes2970/AgentBridge/v0.2.0/install.sh | bash -s -- --platform cline --project "$PWD"`.
 2. Restart Cline.
 3. Say: "Activate AgentBridge".
 
-`install.sh` automatically creates `.cline/hooks/session-shutdown.sh`
-in the target project and makes it executable, so `.AgentBridge/`
-checkpoints after each Cline session.
+## Automatic checkpoints (installed by default)
 
-## Optional: manual fallback / PostToolUse hook
+`install.sh` installs two hooks in `.cline/hooks/`:
 
-If you prefer to wire it yourself, create `.cline/hooks/SessionShutdown.sh`:
+- `session-shutdown.sh` — runs `checkpoint.sh` after each Cline session
+  (refreshes git-state.md, writes a session file, appends an INDEX row).
+- `post-tool-use.sh` — appends a one-line activity entry to
+  `.AgentBridge/state.md` after each meaningful tool call
+  (`write_to_file`, `replace_in_file`, `execute_command`, `apply_diff`).
+  It no-ops on unknown tool names by design. If your Cline version sets
+  `CLINE_TOOL_NAME` differently, update the case statement in the hook —
+  it exits early on unrecognized tools.
+
+Checkpoints happen both per-step (PostToolUse) and at session end
+(SessionShutdown), so credit-limit interruptions are lossless.
+
+## If auto-install failed
+
+Create `.cline/hooks/SessionShutdown.sh` manually:
 
 ```bash
 #!/usr/bin/env bash
@@ -18,12 +30,4 @@ PROJECT_DIR="$(pwd)"
 bash "$HOME/.cline/skills/AgentBridge/scripts/checkpoint.sh" "$PROJECT_DIR" || true
 ```
 
-And `.cline/hooks/PostToolUse.sh`:
-
-```bash
-#!/usr/bin/env bash
-# Fires after tool execution. Only checkpoint on file writes/commands if desired.
-exit 0
-```
-
-Make them executable: `chmod +x .cline/hooks/*.sh`.
+Make it executable: `chmod +x .cline/hooks/*.sh`.
