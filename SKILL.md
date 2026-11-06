@@ -1,82 +1,63 @@
 ---
 name: AgentBridge
-description: |
-  Cross-agent context handoff. Triggers: "activate AgentBridge", "switch agent",
-  "new session", "handoff", "credit limit". Maintains a local .AgentBridge/ folder
-  (goal.md, next.md, state.md, git-state.md) so any coding agent resumes from four
-  small Markdown files instead of re-reading the whole repo. Zero runtime, no MCP
-  server, no secrets.
+description: Cross-agent context handoff and session continuity. Use when switching AI coding agents (OpenCode, Cline, Claude Code, Codex), starting a new session in the same tool, running low on credits or context, or when the user says "activate AgentBridge", "set up AgentBridge", "switch agent", "new session", "handoff", "resume context", or "credit limit". Maintains a .AgentBridge/ folder with goal, state, decisions, next action, git state, and session summaries so any agent can resume without re-reading the entire repository.
 ---
 
 # AgentBridge
 
-Cross-agent context handoff for lossless agent and session switching.
+## What this skill does
 
-## Why it exists
+AgentBridge is a file-based handoff protocol. It creates and maintains a `.AgentBridge/` folder at the project root containing plain Markdown files that any coding agent can read. The goal: **make switching agents or starting a new session lossless and near-instant**, so the next agent does not re-explore the repository.
 
-When an agent hits a credit or context limit, the next agent starts with zero memory.
-It re-reads files, re-greps symbols, and re-infers the goal—burning tokens and time
-before doing any real work. AgentBridge stores durable task state (goal, decisions,
-progress, next action, git state, session summaries) in plain Markdown so the next
-agent resumes from four small files instead of the whole repo.
+## Activation (first time only)
 
-## Tiered storage
+When the user says "Activate AgentBridge" or similar:
 
-### Hot path (read every session)
-| File | Purpose |
-|------|---------|
-| `.AgentBridge/goal.md` | Current objective |
-| `.AgentBridge/next.md` | Immediate next action |
-| `.AgentBridge/state.md` | Progress, blockers, decisions summary |
-| `.AgentBridge/git-state.md` | Branch, commit, working-tree state |
+1. Run `bash "$SKILL_DIR/scripts/init-bridge.sh" "$PWD"` to create `.AgentBridge/` from templates.
+2. Verify `.AgentBridge/` is in `.gitignore`. If not, append it.
+3. Read `goal.md`, `next.md`, `state.md`, `git-state.md`.
+4. Confirm: "AgentBridge activated. I will read `.AgentBridge/` before touching source files and update it after every meaningful step."
 
-### Cold path (read on demand)
-| File | Purpose |
-|------|---------|
-| `.AgentBridge/environment.md` | Environment summary |
-| `.AgentBridge/decisions.md` | Key architectural decisions |
-| `.AgentBridge/sessions/` | Per-session summaries |
+If `$SKILL_DIR` is unknown, find the skill directory by checking `.cline/skills/AgentBridge`, `~/.cline/skills/AgentBridge`, `.opencode/skills/AgentBridge`, or `~/.config/opencode/skills/AgentBridge`.
 
-## Design principles
+## Every session: read order
 
-- **Markdown only, no runtime.** Any agent can read it without an MCP server,
-  daemon, or graph build.
-- **Summarize, don't dump.** No raw transcripts. No secrets. Reference artifacts
-  by path/URL.
-- **Checkpoint continuously.** Credit limits are abrupt. Write after every
-  meaningful step, not only at session end.
-- **Cross-platform.** Works with Cline, OpenCode, Claude Code, and Codex.
+Before reading any source file, read these in order:
 
-## Installation
+1. `.AgentBridge/goal.md` — stable objective, constraints, definition of done.
+2. `.AgentBridge/next.md` — the single next action and open questions.
+3. `.AgentBridge/state.md` — current focus, files touched, tests run, blockers.
+4. `.AgentBridge/git-state.md` — branch, HEAD, unpushed commits, dirty files.
+5. `.AgentBridge/decisions.md` — read the last 5 entries only.
+
+If `sessions/INDEX.md` exists, read it to find the most recent session summary. Open that file only if you need more history.
+
+## Every meaningful step: write immediately
+
+After each meaningful action (file edit, state-changing command, architectural decision, test run), update the bridge **immediately**. Do not wait for session end—credit limits are abrupt.
+
+- Append a one-line bullet to `state.md` under `## Activity log` with timestamp, action, and result.
+- If you made a decision, append to `decisions.md`: decision, reason, alternatives rejected.
+- Update `next.md` with the single next action.
+- Update `git-state.md` if you committed, pushed, or changed branches.
+
+## Before ending a session or when context/credits are low
+
+Run:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/haricodes2970/AgentBridge/main/install.sh | bash
+bash "$SKILL_DIR/scripts/checkpoint.sh" "$PWD"
 ```
 
-The installer detects your platform (Cline `.cline/`, OpenCode `.opencode/` or
-`.agents/`, Claude Code `.claude/`), installs the skill, seeds `.AgentBridge/`,
-and adds it to `.gitignore`.
+This refreshes git-state.md, creates sessions/YYYY-MM-DD-HHMM-<agent>.md, and appends a row to sessions/INDEX.md.
 
-## Usage
+If the script is unavailable, manually write the session summary using templates/session.md.
 
-1. Edit `.AgentBridge/goal.md` with your current objective.
-2. Edit `.AgentBridge/next.md` with the immediate next action.
-3. Trigger the skill in your agent:
-   - "activate AgentBridge"
-   - "switch agent"
-   - "new session"
-   - "handoff"
-   - "credit limit"
-4. After every meaningful step, update `.AgentBridge/state.md` and
-   `.AgentBridge/next.md`.
+## Rules
 
-## Hooks
-
-Cline supports `TaskStart`, `TaskComplete`, `SessionShutdown`, and `PostToolUse`
-hooks. The installer wires them into `.cline/settings.json` so `.AgentBridge/`
-stays current automatically. For agents without hooks, the SKILL.md instructions
-are the fallback.
-
-## License
-
-MIT
+- Summarize, don't dump. Never store raw prompts, responses, or transcripts. Store decisions, outcomes, next actions.
+- Never store secrets. No API keys, tokens, passwords, PII. Reference env var names only.
+- Reference artifacts, don't duplicate. Link to PRs, issues, ADRs, commits by path or URL.
+- One next action. next.md must be unambiguous.
+- Keep the hot path small. goal.md, next.md, state.md, git-state.md each under ~100 lines.
+- Freshness beats completeness. A slightly stale bridge is useful; a missing bridge is not. Write early and often.
