@@ -23,25 +23,34 @@ DIRTY_AGENTBRIDGE="$(echo "$DIRTY_LIST" | grep -E "$EXCLUDE_REGEX" || true)"
 DIRTY_COUNT="$(echo -n "$DIRTY_USER" | grep -c . || true)"
 UNPUSHED="$(git log --oneline @{u}..HEAD 2>/dev/null | wc -l | tr -d ' ' || echo 'n/a')"
 
-cat > "$BRIDGE/git-state.md" <<EOF
-# Git state
-
-- Updated: $STAMP
-- Branch: \`$BRANCH\`
-- HEAD: \`$HEAD\`
-- Dirty files (user): $DIRTY_COUNT
-- Unpushed commits: $UNPUSHED
-
-## User changes
-\`\`\`
-${DIRTY_USER:-clean}
-\`\`\`
-
-## AgentBridge-managed artifacts (expected)
-\`\`\`
-${DIRTY_AGENTBRIDGE:-none}
-\`\`\`
-EOF
+# Write git-state.md
+{
+  echo "# Git state"
+  echo ""
+  echo "- Updated: $STAMP"
+  echo "- Branch: $BRANCH"
+  echo "- HEAD: $HEAD"
+  echo "- Dirty files (user): $DIRTY_COUNT"
+  echo "- Unpushed commits: $UNPUSHED"
+  echo ""
+  echo "## User changes"
+  echo "```"
+  if [[ -n "$DIRTY_USER" ]]; then
+    echo "$DIRTY_USER" | sed '/^$/d'
+  else
+    echo "clean"
+  fi
+  echo "```"
+  echo ""
+  echo "## AgentBridge-managed artifacts (expected)"
+  echo "```"
+  if [[ -n "$DIRTY_AGENTBRIDGE" ]]; then
+    echo "$DIRTY_AGENTBRIDGE" | sed '/^$/d'
+  else
+    echo "none"
+  fi
+  echo "```"
+} > "$BRIDGE/git-state.md"
 
 if [[ ! -f "$SESSION_FILE" ]]; then
   cat > "$SESSION_FILE" <<EOF
@@ -74,11 +83,9 @@ fi
 # append index row if not present
 INDEX="$BRIDGE/sessions/INDEX.md"
 if [[ ! -f "$INDEX" ]]; then
-  SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
   cp "$SKILL_DIR/templates/INDEX.md" "$INDEX"
 fi
-# Ensure the index ends with a newline before appending (defensive against
-# templates or pre-existing files that lack a trailing newline).
 if [[ -s "$INDEX" ]] && [[ ! "$(tail -c1 "$INDEX")" == $'\n' ]]; then
   echo >> "$INDEX"
 fi
