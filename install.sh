@@ -1,163 +1,261 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="haricodes2970/AgentBridge"
-BRANCH="main"
-SKILL_NAME="AgentBridge"
-PROJECT_DIR="${PWD}"
-PLATFORM="auto"
+REPO_URL="https://github.com/haricodes2970/AgentBridge.git"
+CANONICAL="${HOME}/.agents/skills/AgentBridge"
+SKIP_CLONE="${AGENTBRIDGE_SKIP_CLONE:-0}"
+
+PROJECT_DIR="$PWD"
+HARNESSES=""
+MODE=""
+NO_HOOKS=0
+
+usage() {
+  cat <<'EOF'
+Usage: install.sh [options]
+
+  --project DIR        Project directory to seed .AgentBridge/ (default: $PWD)
+  --harnesses "a,b,c"  Comma- or space-separated harness names
+  --all                Install into every supported harness
+  --auto               Detect installed harnesses and install into those
+  --interactive        Prompt to pick harnesses
+  --no-hooks           Skip hook wiring (Cline/Claude/OpenCode)
+  --platform X         Deprecated alias for --harnesses X
+  --help               Show this message
+
+Harnesses: cline opencode claude codex gemini cursor copilot windsurf
+           amp kiro roo kilo factory warp goose augment qwen continue aider
+EOF
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --project) PROJECT_DIR="$2"; shift 2 ;;
-    --platform) PLATFORM="$2"; shift 2 ;;
-    *) echo "Unknown arg: $1"; exit 1 ;;
+    --project)     PROJECT_DIR="$2"; shift 2 ;;
+    --harnesses)   HARNESSES="$2"; shift 2 ;;
+    --all)         MODE="all"; shift ;;
+    --auto)        MODE="auto"; shift ;;
+    --interactive) MODE="interactive"; shift ;;
+    --no-hooks)    NO_HOOKS=1; shift ;;
+    --platform)    HARNESSES="$2"; shift 2; echo "note: --platform is deprecated; use --harnesses" >&2 ;;
+    --help|-h)     usage; exit 0 ;;
+    *)             echo "unknown arg: $1" >&2; usage; exit 1 ;;
   esac
 done
 
-if [[ "$PLATFORM" == "auto" ]]; then
-  if [[ -d ".cline" ]] || [[ -f ".clinerules" ]]; then PLATFORM="cline"
-  elif [[ -d ".opencode" ]]; then PLATFORM="opencode"
-  elif [[ -d ".claude" ]]; then PLATFORM="claude"
-  else PLATFORM="generic"
+# 1. Clone / update canonical
+if [[ -d "$CANONICAL/.git" ]]; then
+  if [[ "$SKIP_CLONE" == "1" ]]; then
+    echo "[1/5] skip-clone: using existing $CANONICAL"
+  else
+    echo "[1/5] updating $CANONICAL"
+    git -C "$CANONICAL" pull --ff-only || echo "  warn: pull failed, continuing with existing"
+  fi
+else
+  echo "[1/5] installing canonical to $CANONICAL"
+  mkdir -p "$(dirname "$CANONICAL")"
+  if [[ "$SKIP_CLONE" == "1" ]]; then
+    SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    cp -R "$SRC" "$CANONICAL"
+  else
+    git clone --depth 1 "$REPO_URL" "$CANONICAL"
   fi
 fi
 
-case "$PLATFORM" in
-  cline) SKILL_DIR="$HOME/.cline/skills/$SKILL_NAME" ;;
-  opencode) SKILL_DIR="$HOME/.config/opencode/skills/$SKILL_NAME" ;;
-  claude) SKILL_DIR="$HOME/.claude/skills/$SKILL_NAME" ;;
-  *) SKILL_DIR="$HOME/.agentbridge/skills/$SKILL_NAME" ;;
+# 2. Source harness registry
+if [[ ! -f "$CANONICAL/lib/harnesses.sh" ]]; then
+  echo "error: $CANONICAL/lib/harnesses.sh missing" >&2
+  exit 1
+fi
+# shellcheck source=/dev/null
+source "$CANONICAL/lib/harnesses.sh"
+
+# 3. Resolve harness selection
+if [[ -z "$HARNESSES" && -z "$MODE" ]]; then
+  if [[ -t 0 ]]; then MODE="interactive"; else MODE="auto"; fi
+fi
+
+case "$MODE" in
+  all)
+    HARNESSES="$(harness_list | tr '\n' ' ')"
+    echo "[2/5] --all: all harnesses selected"
+    ;;
+  auto)
+    HARNESSES="$(harness_detect | tr '\n' ' ')"
+    if [[ -z "${HARNESSES// /}" ]]; then
+      echo "error: no harnesses detected. Re-run with --interactive or --harnesses." >&2
+      exit 1
+    fi
+    echo "[2/5] --auto detected: $HARNESSES"
+    ;;
+  interactive)
+    echo "[2/5] select harnesses:"
+    mapfile -t names < <(harness_list)
+    for i in "${!names[@]}"; do
+      printf '  %2d) %s\n' "$((i+1))" "${names[$i]}"
+    done
+    read -r -p "Enter numbers (space-separated), or 'all': " input
+    if [[ "$input" == "all" ]]; then
+      HARNESSES="$(harness_list | tr '\n' ' ')"
+    else
+      selected=()
+      for n in $input; do
+        if ! [[ "$n" =~ ^[0-9]+$ ]] || (( n < 1 || n > ${#names[@]} )); then
+          echo "invalid selection: $n" >&2; exit 1
+        fi
+        selected+=("${names[$((n-1))]}")
+      done
+      HARNESSES="${selected[*]}"
+    fi
+    ;;
+  "") ;;
 esac
 
-if [[ "${AGENTBRIDGE_SKIP_CLONE:-}" == "1" ]]; then
-  echo "Skipping git clone; copying local tree into $SKILL_DIR"
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  REPO_ROOT="$SCRIPT_DIR"
-  rm -rf "$SKILL_DIR"
-  mkdir -p "$(dirname "$SKILL_DIR")"
-  cp -r "$REPO_ROOT" "$SKILL_DIR"
-elif [[ -d "$SKILL_DIR/.git" ]]; then
-  echo "Updating $SKILL_NAME in $SKILL_DIR"
-  git -C "$SKILL_DIR" pull --ff-only
+HARNESSES="$(echo "$HARNESSES" | tr ',' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//')"
+if [[ -z "$HARNESSES" ]]; then
+  echo "error: no harnesses selected" >&2
+  exit 1
+fi
+
+# 4. Symlink each harness
+echo "[3/5] linking into harnesses"
+SELECTED_SUMMARY=()
+for h in $HARNESSES; do
+  if ! harness_global_dir "$h" >/dev/null 2>&1; then
+    echo "  warn: unknown harness '$h', skipping"
+    continue
+  fi
+  TARGET_DIR="$(harness_global_dir "$h")"
+  if [[ "$TARGET_DIR" == "${HOME}/.agents/skills" ]]; then
+    SELECTED_SUMMARY+=("$h:shared")
+    echo "  $h: shared (canonical already visible)"
+    continue
+  fi
+  mkdir -p "$(dirname "$TARGET_DIR")"
+  mkdir -p "$TARGET_DIR"
+  LINK_PATH="$TARGET_DIR/AgentBridge"
+  # Path safety: only remove if the link target literally ends with /AgentBridge
+  if [[ -e "$LINK_PATH" || -L "$LINK_PATH" ]]; then
+    case "$LINK_PATH" in
+      */AgentBridge) rm -rf "$LINK_PATH" ;;
+      *) echo "  error: refusing to remove unexpected path: $LINK_PATH" >&2; exit 1 ;;
+    esac
+  fi
+  if ln -s "$CANONICAL" "$LINK_PATH" 2>/dev/null; then
+    SELECTED_SUMMARY+=("$h:symlink")
+    echo "  $h: symlinked → $LINK_PATH"
+  else
+    cp -R "$CANONICAL" "$LINK_PATH"
+    SELECTED_SUMMARY+=("$h:copy")
+    echo "  $h: copied → $LINK_PATH"
+  fi
+done
+
+# 5. Seed project bridge
+echo "[4/5] seeding project bridge in $PROJECT_DIR"
+mkdir -p "$PROJECT_DIR"
+bash "$CANONICAL/scripts/init-bridge.sh" "$PROJECT_DIR"
+
+GITIGNORE="$PROJECT_DIR/.gitignore"
+if [[ -f "$GITIGNORE" ]]; then
+  if ! grep -qxF '.AgentBridge/' "$GITIGNORE"; then
+    echo '.AgentBridge/' >> "$GITIGNORE"
+    echo "  added .AgentBridge/ to .gitignore"
+  fi
 else
-  echo "Installing $SKILL_NAME to $SKILL_DIR"
-  mkdir -p "$(dirname "$SKILL_DIR")"
-  git clone --depth 1 "https://github.com/${REPO}.git" "$SKILL_DIR"
+  echo '.AgentBridge/' > "$GITIGNORE"
+  echo "  created .gitignore with .AgentBridge/"
 fi
 
-cd "$PROJECT_DIR"
-bash "$SKILL_DIR/scripts/init-bridge.sh" "$PROJECT_DIR"
-
-if ! grep -qxF '.AgentBridge/' .gitignore 2>/dev/null; then
-  echo '.AgentBridge/' >> .gitignore
-  echo "Added .AgentBridge/ to .gitignore"
+# 6. Hooks
+if [[ "$NO_HOOKS" == "0" ]]; then
+  echo "[5/5] wiring hooks"
+  has() { case " $HARNESSES " in *" $1 "*) return 0;; *) return 1;; esac; }
+  has cline    && install_cline_hooks    "$PROJECT_DIR" || true
+  has claude   && install_claude_hooks   "$PROJECT_DIR" || true
+  has opencode && install_opencode_hooks "$PROJECT_DIR" || true
+else
+  echo "[5/5] hooks skipped (--no-hooks)"
 fi
 
-# Wire Cline hooks automatically
-if [[ "$PLATFORM" == "cline" ]]; then
-  HOOKS_DIR="$PROJECT_DIR/.cline/hooks"
-  mkdir -p "$HOOKS_DIR"
-  cat > "$HOOKS_DIR/session-shutdown.sh" <<'EOF'
+echo ""
+echo "Installed harnesses:"
+for s in "${SELECTED_SUMMARY[@]}"; do
+  echo "  ${s%%:*} → ${s##*:}"
+done
+echo ""
+echo "Canonical skill: $CANONICAL"
+echo "Project bridge:  $PROJECT_DIR/.AgentBridge"
+echo ""
+echo "Restart your agents, then say: Activate AgentBridge"
+
+# ─── Hook installers ────────────────────────────────────────────────────
+install_cline_hooks() {
+  local proj="$1" hooks_dir="$1/.cline/hooks"
+  mkdir -p "$hooks_dir"
+  cat > "$hooks_dir/session-shutdown.sh" <<'HOOK'
 #!/usr/bin/env bash
 AGENT_NAME=cline bash "$HOME/.cline/skills/AgentBridge/scripts/checkpoint.sh" "$PWD" || true
-EOF
-  chmod +x "$HOOKS_DIR/session-shutdown.sh"
-  echo "Installed Cline SessionShutdown hook at $HOOKS_DIR/session-shutdown.sh"
-  cat > "$HOOKS_DIR/post-tool-use.sh" <<'EOF'
+HOOK
+  chmod +x "$hooks_dir/session-shutdown.sh"
+  cat > "$hooks_dir/post-tool-use.sh" <<'HOOK'
 #!/usr/bin/env bash
-# AgentBridge: append a one-line activity log entry after each meaningful tool use.
-PROJECT_DIR="$(pwd)"
-BRIDGE="$PROJECT_DIR/.AgentBridge"
+BRIDGE="$PWD/.AgentBridge"
 [ -d "$BRIDGE" ] || exit 0
 [ -f "$BRIDGE/state.md" ] || exit 0
-TOOL_NAME="${CLINE_TOOL_NAME:-unknown}"
-case "$TOOL_NAME" in
+case "${CLINE_TOOL_NAME:-unknown}" in
   write_to_file|replace_in_file|execute_command|apply_diff) ;;
   *) exit 0 ;;
 esac
-STAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-printf -- "- %s — %s\n" "$STAMP" "$TOOL_NAME" >> "$BRIDGE/state.md"
-exit 0
-EOF
-  chmod +x "$HOOKS_DIR/post-tool-use.sh"
-  echo "Installed Cline PostToolUse hook at $HOOKS_DIR/post-tool-use.sh"
-fi
+printf -- "- %s — %s\n" "$(date -u +%FT%TZ)" "${CLINE_TOOL_NAME:-unknown}" >> "$BRIDGE/state.md"
+HOOK
+  chmod +x "$hooks_dir/post-tool-use.sh"
+  echo "  cline: hooks installed"
+}
 
-# Wire Claude Code hooks automatically
-if [[ "$PLATFORM" == "claude" ]]; then
-  CLAUDE_DIR="$PROJECT_DIR/.claude"
-  SETTINGS="$CLAUDE_DIR/settings.json"
-  HOOK_CMD='AGENT_NAME=claude bash "$HOME/.claude/skills/AgentBridge/scripts/checkpoint.sh" "$PWD" || true'
-  mkdir -p "$CLAUDE_DIR"
-  if [[ ! -f "$SETTINGS" ]]; then
-    printf '{"hooks":{}}\n' > "$SETTINGS"
-    echo "Created .claude/settings.json"
-  fi
+install_claude_hooks() {
+  local proj="$1" settings="$1/.claude/settings.json"
+  mkdir -p "$proj/.claude"
+  [[ -f "$settings" ]] || echo '{"hooks":{}}' > "$settings"
+  local cmd='AGENT_NAME=claude bash "$HOME/.claude/skills/AgentBridge/scripts/checkpoint.sh" "$PWD" || true'
   if command -v python3 >/dev/null 2>&1; then
-    if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$SETTINGS" 2>/dev/null; then
-      echo "WARNING: $SETTINGS is not valid JSON; skipping hook wiring"
-      echo "Manual: add SessionEnd hook to $SETTINGS: $HOOK_CMD"
-    else
-      python3 - "$SETTINGS" "$HOOK_CMD" <<'PY'
+    python3 - "$settings" "$cmd" <<'PY'
 import json, sys
-path, cmd = sys.argv[1], sys.argv[2]
-with open(path) as f:
-    data = json.load(f)
-hooks = data.setdefault("hooks", {})
-existing = hooks.get("SessionEnd", [])
-if cmd not in existing:
-    existing.append(cmd)
-    hooks["SessionEnd"] = existing
-with open(path, "w") as f:
-    json.dump(data, f, indent=2)
-    f.write("\n")
+p, cmd = sys.argv[1], sys.argv[2]
+try:
+    d = json.load(open(p))
+except json.JSONDecodeError:
+    print("  claude: settings.json is not valid JSON, skipping hook", file=sys.stderr)
+    sys.exit(0)
+d.setdefault("hooks", {}).setdefault("SessionEnd", [])
+if not any(h.get("command") == cmd for h in d["hooks"]["SessionEnd"]):
+    d["hooks"]["SessionEnd"].append({"command": cmd})
+json.dump(d, open(p, "w"), indent=2)
 PY
-      echo "Installed Claude Code SessionEnd hook in $SETTINGS"
-    fi
+    echo "  claude: SessionEnd hook wired (python3)"
   elif command -v jq >/dev/null 2>&1; then
-    if ! jq empty "$SETTINGS" >/dev/null 2>&1; then
-      echo "WARNING: $SETTINGS is not valid JSON; skipping hook wiring"
-      echo "Manual: add SessionEnd hook to $SETTINGS: $HOOK_CMD"
-    else
-      TMPJQ="$(mktemp)"
-      jq --arg cmd "$HOOK_CMD" '
-        .hooks.SessionEnd = (
-          (.hooks.SessionEnd // [])
-          | if index($cmd) == null then . + [$cmd] else . end
-        )
-      ' "$SETTINGS" > "$TMPJQ" && mv "$TMPJQ" "$SETTINGS"
-      echo "Installed Claude Code SessionEnd hook in $SETTINGS"
-    fi
+    local tmp; tmp="$(mktemp)"
+    jq --arg c "$cmd" '.hooks.SessionEnd = ((.hooks.SessionEnd // []) + [{"command":$c}] | unique_by(.command))' \
+      "$settings" > "$tmp" && mv "$tmp" "$settings"
+    echo "  claude: SessionEnd hook wired (jq)"
   else
-    echo "WARNING: neither python3 nor jq available; cannot merge SessionEnd hook into $SETTINGS"
-    echo "Manual: add to $SETTINGS hooks.SessionEnd: $HOOK_CMD"
+    echo "  claude: install python3 or jq to auto-wire hooks; skipping"
   fi
-fi
+}
 
-# Wire OpenCode checkpoint instruction via AGENTS.md
-if [[ "$PLATFORM" == "opencode" ]]; then
-  AGENTS_MD="$PROJECT_DIR/AGENTS.md"
-  AB_START="<!-- AgentBridge:start -->"
-  AB_END="<!-- AgentBridge:end -->"
-  if [[ -f "$AGENTS_MD" ]] && grep -qF "$AB_START" "$AGENTS_MD"; then
-    echo "AgentBridge block already present in $AGENTS_MD"
-  else
-    TMPMD="$(mktemp)"
-    {
-      [[ -f "$AGENTS_MD" ]] && cat "$AGENTS_MD"
-      [[ -s "$AGENTS_MD" ]] && echo
-      cat <<'EOF'
-<!-- AgentBridge:start -->
-## AgentBridge
-Before ending this session, run:
-`AGENT_NAME=opencode bash "$HOME/.config/opencode/skills/AgentBridge/scripts/checkpoint.sh" "$PWD"`
-Do not skip this. If the command fails, note it in .AgentBridge/state.md.
-<!-- AgentBridge:end -->
-EOF
-    } > "$TMPMD" && mv "$TMPMD" "$AGENTS_MD"
-    echo "Updated $AGENTS_MD with AgentBridge checkpoint instruction"
+install_opencode_hooks() {
+  local proj="$1" f="$1/AGENTS.md"
+  local start='<!-- AgentBridge:start -->' end='<!-- AgentBridge:end -->'
+  if [[ -f "$f" ]] && grep -qF "$start" "$f"; then
+    echo "  opencode: AGENTS.md block already present"
+    return 0
   fi
-fi
-
-echo "Done. Restart your agent and say: 'Activate AgentBridge'."
+  {
+    echo ""
+    echo "$start"
+    echo "## AgentBridge"
+    echo "Before ending this session, run:"
+    echo '`AGENT_NAME=opencode bash "$HOME/.config/opencode/skills/AgentBridge/scripts/checkpoint.sh" "$PWD"`'
+    echo "$end"
+  } >> "$f"
+  echo "  opencode: AGENTS.md block added"
+}
