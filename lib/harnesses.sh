@@ -78,6 +78,7 @@ EOF
 harness_detect() {
   local h dir
   while IFS= read -r h; do
+    harness_is_shared "$h" && continue
     dir="$(harness_global_dir "$h")" || continue
     # Check the parent config dir, not the skills subdir (which may not exist yet)
     case "$h" in

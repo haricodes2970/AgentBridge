@@ -10,6 +10,79 @@ HARNESSES=""
 MODE=""
 NO_HOOKS=0
 
+# ─── Hook installers (defined BEFORE use — bash requires this) ─────────
+install_cline_hooks() {
+  local hooks_dir="$1/.cline/hooks"
+  mkdir -p "$hooks_dir"
+  cat > "$hooks_dir/session-shutdown.sh" <<'HOOK'
+#!/usr/bin/env bash
+AGENT_NAME=cline bash "$HOME/.cline/skills/AgentBridge/scripts/checkpoint.sh" "$PWD" || true
+HOOK
+  chmod +x "$hooks_dir/session-shutdown.sh"
+  cat > "$hooks_dir/post-tool-use.sh" <<'HOOK'
+#!/usr/bin/env bash
+BRIDGE="$PWD/.AgentBridge"
+[ -d "$BRIDGE" ] || exit 0
+[ -f "$BRIDGE/state.md" ] || exit 0
+case "${CLINE_TOOL_NAME:-unknown}" in
+  write_to_file|replace_in_file|execute_command|apply_diff) ;;
+  *) exit 0 ;;
+esac
+printf -- "- %s — %s\n" "$(date -u +%FT%TZ)" "${CLINE_TOOL_NAME:-unknown}" >> "$BRIDGE/state.md"
+HOOK
+  chmod +x "$hooks_dir/post-tool-use.sh"
+  echo "  cline: hooks installed"
+}
+
+install_claude_hooks() {
+  local settings="$1/.claude/settings.json"
+  mkdir -p "$1/.claude"
+  [[ -f "$settings" ]] || echo '{"hooks":{}}' > "$settings"
+  local cmd='AGENT_NAME=claude bash "$HOME/.claude/skills/AgentBridge/scripts/checkpoint.sh" "$PWD" || true'
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$settings" "$cmd" <<'PY'
+import json, sys
+p, cmd = sys.argv[1], sys.argv[2]
+try:
+    d = json.load(open(p))
+except json.JSONDecodeError:
+    print("  claude: settings.json not valid JSON, skipping hook", file=sys.stderr)
+    sys.exit(0)
+d.setdefault("hooks", {}).setdefault("SessionEnd", [])
+if not any(h.get("command") == cmd for h in d["hooks"]["SessionEnd"]):
+    d["hooks"]["SessionEnd"].append({"command": cmd})
+json.dump(d, open(p, "w"), indent=2)
+PY
+    echo "  claude: SessionEnd hook wired (python3)"
+  elif command -v jq >/dev/null 2>&1; then
+    local tmp; tmp="$(mktemp)"
+    jq --arg c "$cmd" '.hooks.SessionEnd = ((.hooks.SessionEnd // []) + [{"command":$c}] | unique_by(.command))' \
+      "$settings" > "$tmp" && mv "$tmp" "$settings"
+    echo "  claude: SessionEnd hook wired (jq)"
+  else
+    echo "  claude: install python3 or jq to auto-wire hooks; skipping"
+  fi
+}
+
+install_opencode_hooks() {
+  local f="$1/AGENTS.md"
+  local start='<!-- AgentBridge:start -->' end='<!-- AgentBridge:end -->'
+  if [[ -f "$f" ]] && grep -qF "$start" "$f"; then
+    echo "  opencode: AGENTS.md block already present"
+    return 0
+  fi
+  {
+    echo ""
+    echo "$start"
+    echo "## AgentBridge"
+    echo "Before ending this session, run:"
+    echo '`AGENT_NAME=opencode bash "$HOME/.config/opencode/skills/AgentBridge/scripts/checkpoint.sh" "$PWD"`'
+    echo "$end"
+  } >> "$f"
+  echo "  opencode: AGENTS.md block added"
+}
+
+# ─── Usage ─────────────────────────────────────────────────────────────
 usage() {
   cat <<'EOF'
 Usage: install.sh [options]
@@ -18,7 +91,7 @@ Usage: install.sh [options]
   --harnesses "a,b,c"  Comma- or space-separated harness names
   --all                Install into every supported harness
   --auto               Detect installed harnesses and install into those
-  --interactive        Prompt to pick harnesses
+  --interactive        Prompt to pick harnesses (requires TTY on stdin)
   --no-hooks           Skip hook wiring (Cline/Claude/OpenCode)
   --platform X         Deprecated alias for --harnesses X
   --help               Show this message
@@ -28,6 +101,7 @@ Harnesses: cline opencode claude codex gemini cursor copilot windsurf
 EOF
 }
 
+# ─── Arg parsing ───────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --project)     PROJECT_DIR="$2"; shift 2 ;;
@@ -42,13 +116,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# 1. Clone / update canonical
+# ─── 1. Clone / update canonical ───────────────────────────────────────
 if [[ -d "$CANONICAL/.git" ]]; then
   if [[ "$SKIP_CLONE" == "1" ]]; then
     echo "[1/5] skip-clone: using existing $CANONICAL"
   else
     echo "[1/5] updating $CANONICAL"
-    git -C "$CANONICAL" pull --ff-only || echo "  warn: pull failed, continuing with existing"
+    git -C "$CANONICAL" pull --ff-only || echo "  warn: pull failed, continuing" >&2
   fi
 else
   echo "[1/5] installing canonical to $CANONICAL"
@@ -61,7 +135,7 @@ else
   fi
 fi
 
-# 2. Source harness registry
+# ─── 2. Source harness registry ────────────────────────────────────────
 if [[ ! -f "$CANONICAL/lib/harnesses.sh" ]]; then
   echo "error: $CANONICAL/lib/harnesses.sh missing" >&2
   exit 1
@@ -69,9 +143,15 @@ fi
 # shellcheck source=/dev/null
 source "$CANONICAL/lib/harnesses.sh"
 
-# 3. Resolve harness selection
+# ─── 3. Resolve harness selection ──────────────────────────────────────
 if [[ -z "$HARNESSES" && -z "$MODE" ]]; then
-  if [[ -t 0 ]]; then MODE="interactive"; else MODE="auto"; fi
+  if [[ -t 0 ]]; then
+    MODE="interactive"
+  else
+    MODE="auto"
+    echo "note: piped install detected (stdin is not a terminal); falling back to --auto." >&2
+    echo "      for interactive: curl -fsSL .../install.sh -o /tmp/ab.sh && bash /tmp/ab.sh --interactive" >&2
+  fi
 fi
 
 case "$MODE" in
@@ -116,7 +196,7 @@ if [[ -z "$HARNESSES" ]]; then
   exit 1
 fi
 
-# 4. Symlink each harness
+# ─── 4. Symlink into each harness ──────────────────────────────────────
 echo "[3/5] linking into harnesses"
 SELECTED_SUMMARY=()
 for h in $HARNESSES; do
@@ -133,7 +213,6 @@ for h in $HARNESSES; do
   mkdir -p "$(dirname "$TARGET_DIR")"
   mkdir -p "$TARGET_DIR"
   LINK_PATH="$TARGET_DIR/AgentBridge"
-  # Path safety: only remove if the link target literally ends with /AgentBridge
   if [[ -e "$LINK_PATH" || -L "$LINK_PATH" ]]; then
     case "$LINK_PATH" in
       */AgentBridge) rm -rf "$LINK_PATH" ;;
@@ -150,10 +229,10 @@ for h in $HARNESSES; do
   fi
 done
 
-# 5. Seed project bridge
+# ─── 5. Seed project bridge ────────────────────────────────────────────
 echo "[4/5] seeding project bridge in $PROJECT_DIR"
 mkdir -p "$PROJECT_DIR"
-bash "$CANONICAL/scripts/init-bridge.sh" "$PROJECT_DIR"
+bash "$CANONICAL/scripts/init-bridge.sh" "$PROJECT_DIR" || echo "  warn: init-bridge.sh returned non-zero; continuing" >&2
 
 GITIGNORE="$PROJECT_DIR/.gitignore"
 if [[ -f "$GITIGNORE" ]]; then
@@ -166,7 +245,7 @@ else
   echo "  created .gitignore with .AgentBridge/"
 fi
 
-# 6. Hooks
+# ─── 6. Hooks ──────────────────────────────────────────────────────────
 if [[ "$NO_HOOKS" == "0" ]]; then
   echo "[5/5] wiring hooks"
   has() { case " $HARNESSES " in *" $1 "*) return 0;; *) return 1;; esac; }
@@ -177,6 +256,7 @@ else
   echo "[5/5] hooks skipped (--no-hooks)"
 fi
 
+# ─── 7. Summary ────────────────────────────────────────────────────────
 echo ""
 echo "Installed harnesses:"
 for s in "${SELECTED_SUMMARY[@]}"; do
@@ -187,75 +267,3 @@ echo "Canonical skill: $CANONICAL"
 echo "Project bridge:  $PROJECT_DIR/.AgentBridge"
 echo ""
 echo "Restart your agents, then say: Activate AgentBridge"
-
-# ─── Hook installers ────────────────────────────────────────────────────
-install_cline_hooks() {
-  local proj="$1" hooks_dir="$1/.cline/hooks"
-  mkdir -p "$hooks_dir"
-  cat > "$hooks_dir/session-shutdown.sh" <<'HOOK'
-#!/usr/bin/env bash
-AGENT_NAME=cline bash "$HOME/.cline/skills/AgentBridge/scripts/checkpoint.sh" "$PWD" || true
-HOOK
-  chmod +x "$hooks_dir/session-shutdown.sh"
-  cat > "$hooks_dir/post-tool-use.sh" <<'HOOK'
-#!/usr/bin/env bash
-BRIDGE="$PWD/.AgentBridge"
-[ -d "$BRIDGE" ] || exit 0
-[ -f "$BRIDGE/state.md" ] || exit 0
-case "${CLINE_TOOL_NAME:-unknown}" in
-  write_to_file|replace_in_file|execute_command|apply_diff) ;;
-  *) exit 0 ;;
-esac
-printf -- "- %s — %s\n" "$(date -u +%FT%TZ)" "${CLINE_TOOL_NAME:-unknown}" >> "$BRIDGE/state.md"
-HOOK
-  chmod +x "$hooks_dir/post-tool-use.sh"
-  echo "  cline: hooks installed"
-}
-
-install_claude_hooks() {
-  local proj="$1" settings="$1/.claude/settings.json"
-  mkdir -p "$proj/.claude"
-  [[ -f "$settings" ]] || echo '{"hooks":{}}' > "$settings"
-  local cmd='AGENT_NAME=claude bash "$HOME/.claude/skills/AgentBridge/scripts/checkpoint.sh" "$PWD" || true'
-  if command -v python3 >/dev/null 2>&1; then
-    python3 - "$settings" "$cmd" <<'PY'
-import json, sys
-p, cmd = sys.argv[1], sys.argv[2]
-try:
-    d = json.load(open(p))
-except json.JSONDecodeError:
-    print("  claude: settings.json is not valid JSON, skipping hook", file=sys.stderr)
-    sys.exit(0)
-d.setdefault("hooks", {}).setdefault("SessionEnd", [])
-if not any(h.get("command") == cmd for h in d["hooks"]["SessionEnd"]):
-    d["hooks"]["SessionEnd"].append({"command": cmd})
-json.dump(d, open(p, "w"), indent=2)
-PY
-    echo "  claude: SessionEnd hook wired (python3)"
-  elif command -v jq >/dev/null 2>&1; then
-    local tmp; tmp="$(mktemp)"
-    jq --arg c "$cmd" '.hooks.SessionEnd = ((.hooks.SessionEnd // []) + [{"command":$c}] | unique_by(.command))' \
-      "$settings" > "$tmp" && mv "$tmp" "$settings"
-    echo "  claude: SessionEnd hook wired (jq)"
-  else
-    echo "  claude: install python3 or jq to auto-wire hooks; skipping"
-  fi
-}
-
-install_opencode_hooks() {
-  local proj="$1" f="$1/AGENTS.md"
-  local start='<!-- AgentBridge:start -->' end='<!-- AgentBridge:end -->'
-  if [[ -f "$f" ]] && grep -qF "$start" "$f"; then
-    echo "  opencode: AGENTS.md block already present"
-    return 0
-  fi
-  {
-    echo ""
-    echo "$start"
-    echo "## AgentBridge"
-    echo "Before ending this session, run:"
-    echo '`AGENT_NAME=opencode bash "$HOME/.config/opencode/skills/AgentBridge/scripts/checkpoint.sh" "$PWD"`'
-    echo "$end"
-  } >> "$f"
-  echo "  opencode: AGENTS.md block added"
-}
