@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eu
 
 PROJECT_DIR="${1:-$PWD}"
 BRIDGE="$PROJECT_DIR/.AgentBridge"
@@ -29,7 +29,7 @@ fi
 cd "$PROJECT_DIR"
 BRANCH="$(git branch --show-current 2>/dev/null || echo 'unknown')"
 HEAD="$(git rev-parse --short HEAD 2>/dev/null || echo 'none')"
-DIRTY="$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+DIRTY="$( (git status --porcelain 2>/dev/null || true) | wc -l | tr -d ' ')"
 cat > "$BRIDGE/git-state.md" <<EOF
 # Git state
 
