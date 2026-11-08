@@ -34,22 +34,22 @@ UNPUSHED="$(git log --oneline @{u}..HEAD 2>/dev/null | wc -l | tr -d ' ' || echo
   echo "- Unpushed commits: $UNPUSHED"
   echo ""
   echo "## User changes"
-  echo "```"
+  echo '```'
   if [[ -n "$DIRTY_USER" ]]; then
     echo "$DIRTY_USER" | sed '/^$/d'
   else
     echo "clean"
   fi
-  echo "```"
+  echo '```'
   echo ""
   echo "## AgentBridge-managed artifacts (expected)"
-  echo "```"
+  echo '```'
   if [[ -n "$DIRTY_AGENTBRIDGE" ]]; then
     echo "$DIRTY_AGENTBRIDGE" | sed '/^$/d'
   else
     echo "none"
   fi
-  echo "```"
+  echo '```'
 } > "$BRIDGE/git-state.md"
 
 if [[ ! -f "$SESSION_FILE" ]]; then
